@@ -32,13 +32,13 @@ export default function MechanismSection() {
       <div className="mx-auto max-w-4xl">
         <div className="mb-5">
           <p className="mb-1 font-sans text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-            The 5-Day Blitz
+            The 24-48 Hour Blitz
           </p>
           <h2 className="text-balance text-lg font-black tracking-tight text-foreground md:text-xl">
-            Your Digital Infrastructure, Live in One Week.
+            Your Digital Infrastructure, Live in 24-48 Hours.
           </h2>
           <p className="mt-1 font-sans text-[10px] text-muted-foreground">
-            I rewire your intake and dispatch in less than 5 days.
+            I rewire your intake and dispatch in 24-48 hours.
           </p>
         </div>
         <div className="grid grid-cols-1 gap-px bg-black sm:grid-cols-2 lg:grid-cols-5">

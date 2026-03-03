@@ -8,7 +8,7 @@ const faqs = [
     trigger: "Why should I trust a single partner over a big agency?",
     content: (
       <p>
-        Big agencies want 6-week discovery meetings and monthly fees to talk to middle managers. I spent 12 years growing companies and building AI systems. I saw the pattern: they move slow while you lose $10,000 or more a week in missed calls. I am a Systems Architect. I install the tech in 5 days and get out. You own the systems. No middle managers. No BS.
+        Big agencies want 6-week discovery meetings and monthly fees to talk to middle managers. I spent 12 years growing companies and building AI systems. I saw the pattern: they move slow while you lose $10,000 or more a week in missed calls. I am a Systems Architect. I install the tech in 24-48 hours and get out. You own the systems. No middle managers. No BS.
       </p>
     ),
   },
@@ -32,7 +32,7 @@ const faqs = [
     trigger: "We are too busy to take on a new project right now.",
     content: (
       <p>
-        That is exactly why you need this. You are busy because your systems are broken and you are the bottleneck. My setup requires less than 3 hours of your team&apos;s time. After 5 days, your staff saves 15 or more hours every week. The busier you are, the more you are bleeding cash.
+        That is exactly why you need this. You are busy because your systems are broken and you are the bottleneck. My setup requires less than 3 hours of your team&apos;s time. After 24-48 hours, your staff saves 15 or more hours every week. The busier you are, the more you are bleeding cash.
       </p>
     ),
   },
@@ -49,7 +49,7 @@ const faqs = [
     content: (
       <div className="space-y-3">
         <p>
-          <strong className="font-bold text-foreground">The Speed Guarantee:</strong> If your AI Dispatcher and CRM automation are not live and testing within 5 days, you do not pay. I will refund your deposit in full.
+          <strong className="font-bold text-foreground">The Speed Guarantee:</strong> If your AI Dispatcher and CRM automation are not live and testing within 24-48 hours, you do not pay. I will refund your deposit in full.
         </p>
         <p>
           <strong className="font-bold text-foreground">The Result Guarantee:</strong> If the system does not capture and qualify at least one emergency mitigation lead that you would have otherwise missed within the first 14 days of going live, I will refund every dime of your first month&apos;s fee.

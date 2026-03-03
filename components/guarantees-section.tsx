@@ -18,10 +18,10 @@ export default function GuaranteesSection() {
               The Speed Guarantee
             </p>
             <p className="mb-3 text-base font-black text-foreground">
-              Live in 5 Days or You Don&apos;t Pay.
+              Live in 24-48 Hours or You Don&apos;t Pay.
             </p>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              If your AI Dispatcher and CRM automation are not live and testing within 5 business days, I refund your deposit in full. No questions asked.
+              If your AI Dispatcher and CRM automation are not live and testing within 24-48 hours, I refund your deposit in full. No questions asked.
             </p>
           </div>
           <div className="bg-foreground p-6">
@@ -38,7 +38,7 @@ export default function GuaranteesSection() {
         </div>
         <div className="mt-4 border border-black p-5 text-center">
           <CalendlyButton
-            label="Secure Your 5-Day Implementation Slot"
+            label="Secure Your 24-48 Hour Implementation Slot"
             className="inline-block w-full border border-black bg-foreground px-6 py-3.5 font-sans text-[11px] font-black uppercase tracking-widest text-background transition-all hover:opacity-90 shadow-[0_0_18px_rgba(0,0,0,0.3)] hover:shadow-[0_0_28px_rgba(0,0,0,0.5)] sm:w-auto"
           />
         </div>

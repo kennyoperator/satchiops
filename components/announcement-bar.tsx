@@ -2,7 +2,7 @@
 
 export default function AnnouncementBar() {
   const ticker =
-    "CARRIER-READY DATA PROTOCOLS ENABLED  //  IICRC S500 LOGIC ALIGNMENT  //  AUTO-DOCUMENTATION GUARDRAILS: ACTIVE  //  5-DAY DEPLOYMENT STATUS: 2 SLOTS REMAINING"
+    "CARRIER-READY DATA PROTOCOLS ENABLED  //  IICRC S500 LOGIC ALIGNMENT  //  AUTO-DOCUMENTATION GUARDRAILS: ACTIVE  //  24-48 HOUR DEPLOYMENT STATUS: 2 SLOTS REMAINING"
 
   return (
     <div className="sticky top-0 z-50 h-10 overflow-hidden border-b border-black bg-foreground">
