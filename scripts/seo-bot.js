@@ -303,7 +303,7 @@ ${linkLines}
 ---
 ### Ready to plug the leak?
 If you want this installed into your shop (intake → dispatch → job file → cash collection) without hiring more staff, I can help.
-**Book the 15-min audit here:** https://satchiops.com/
+[Book the 15-min audit →](https://satchiops.com/){.cta}
 ---
 
 FORBIDDEN: Do NOT mention Jason, certifications (WRT/ASD/IICRC), partnerships, or invent statistics.
