@@ -2,13 +2,13 @@
   "used_dates": [
     "2025-06-29",
     "2025-08-13",
-    "2025-03-18"
+    "2025-12-10"
   ],
   "internal_link_usage": {
     "revenue-leak-diagnostic": 0,
     "scale-restoration-fleet-no-chaos": 3,
     "xactimate-estimator-throughput-restoration": 3,
-    "carrier-ready-restoration-documentation": 1,
+    "carrier-ready-restoration-documentation": 2,
     "restoration-lsa-responsiveness-logic": 0,
     "after-hours-restoration-dispatch-leak": 0
   },
