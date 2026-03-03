@@ -1,708 +1,556 @@
-'use strict';
+// scripts/seo-bot.js
+// Run with: node scripts/seo-bot.js
+// Requires env: ANTHROPIC_API_KEY, TAVILY_API_KEY
 
-/**
- * CLAUDE BOT SEO — Autopublishing Agent for satchiops.com
- * Pipeline: Discover → Extract Keywords → Write MDX → Quality Gates → Commit → Poll → Ping
- */
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import Anthropic from "@anthropic-ai/sdk";
+import axios from "axios";
 
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(__dirname, "..");
+const POSTS_DIR = path.join(ROOT, "content", "posts");
+const BOT_STATE_PATH = path.join(ROOT, "content", "bot_state.json");
 
-const Anthropic = require('@anthropic-ai/sdk');
-const axios = require('axios');
-const { z } = require('zod');
-const fs = require('fs');
+const SITE_BASE = "https://satchiops.com";
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// ─── CONFIGURATION ────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-const ROOT_DIR = path.join(__dirname, '..');
+function log(stage, msg) {
+  console.log(`[seo-bot][${stage}] ${msg}`);
+}
 
-const CONFIG = {
-  TAVILY_API_KEY: process.env.TAVILY_API_KEY,
-  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-  GITHUB_TOKEN: process.env.GITHUB_TOKEN,
-  GITHUB_REPO: process.env.GITHUB_REPO || 'kennyoperator/satchiops',
-  CONTENT_DIR: process.env.CONTENT_DIR || 'content/posts',
-  STATE_PATH: process.env.STATE_PATH || 'content/bot_state.json',
-  DRY_RUN: process.env.DRY_RUN === 'true',
-};
+function readBotState() {
+  const raw = fs.readFileSync(BOT_STATE_PATH, "utf8");
+  return JSON.parse(raw);
+}
 
-const PILLAR_SLUGS = [
-  'revenue-leak-diagnostic',
-  'scale-restoration-fleet-no-chaos',
-  'xactimate-estimator-throughput-restoration',
-  'carrier-ready-restoration-documentation',
-  'restoration-lsa-responsiveness-logic',
-  'after-hours-restoration-dispatch-leak',
-];
+function writeBotState(state) {
+  fs.writeFileSync(BOT_STATE_PATH, JSON.stringify(state, null, 2) + "\n");
+}
 
-const PILLAR_MAX_LINKS = 10;
-const BRIEFING_MAX_LINKS = 3;
+function slugFromFilename(filename) {
+  return filename.replace(/\.mdx?$/, "");
+}
 
-const NEGATIVE_KEYWORDS = [
-  'diy',
-  'homeowner tips',
-  'residential cleaning',
-  'how to clean my carpet',
-  'renting a dehumidifier',
-];
-
-const CTA_MARKER = 'Ready to plug the leak?';
-
-// ─── ZOD SCHEMAS ─────────────────────────────────────────────────────────────
-
-const KeywordsSchema = z.object({
-  keyword_cluster: z.string(),
-  primary_keyword: z.string(),
-  secondary_keywords: z.array(z.string()),
-});
-
-const AuditSchema = z.object({
-  pass: z.boolean(),
-  violations: z.array(z.string()),
-});
-
-// ─── VALIDATION ───────────────────────────────────────────────────────────────
-
-function validateConfig() {
-  const missing = ['TAVILY_API_KEY', 'ANTHROPIC_API_KEY', 'GITHUB_TOKEN']
-    .filter((k) => !CONFIG[k]);
-  if (missing.length > 0) {
-    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+function parseFrontmatter(content) {
+  const match = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!match) return {};
+  const yaml = match[1];
+  const result = {};
+  for (const line of yaml.split("\n")) {
+    const colonIdx = line.indexOf(":");
+    if (colonIdx === -1) continue;
+    const key = line.slice(0, colonIdx).trim();
+    const value = line.slice(colonIdx + 1).trim().replace(/^["']|["']$/g, "");
+    result[key] = value;
   }
+  return result;
 }
 
-// ─── STATE MANAGEMENT ─────────────────────────────────────────────────────────
-
-function loadState() {
-  const stateFile = path.join(ROOT_DIR, CONFIG.STATE_PATH);
-  if (!fs.existsSync(stateFile)) {
-    return {
-      used_dates: [],
-      internal_link_usage: {},
-      run_log: [],
-    };
+function extractInternalLinks(content) {
+  const slugs = [];
+  const re = /\(\/blog\/([a-z0-9-]+)\)/g;
+  let m;
+  while ((m = re.exec(content)) !== null) {
+    slugs.push(m[1]);
   }
-  return JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+  return slugs;
 }
 
-function saveStateLocally(state) {
-  const stateFile = path.join(ROOT_DIR, CONFIG.STATE_PATH);
-  fs.mkdirSync(path.dirname(stateFile), { recursive: true });
-  fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+// ---------------------------------------------------------------------------
+// Stage 1: Scan all existing posts
+// ---------------------------------------------------------------------------
+
+function scanPosts() {
+  log("scan", "Scanning /content/posts for all MDX files...");
+  const files = fs.readdirSync(POSTS_DIR).filter((f) => /\.mdx?$/.test(f));
+  const posts = [];
+  const internalLinkUsage = {};
+
+  for (const file of files) {
+    const content = fs.readFileSync(path.join(POSTS_DIR, file), "utf8");
+    const fm = parseFrontmatter(content);
+    const slug = fm.slug || slugFromFilename(file);
+    const linkedSlugs = extractInternalLinks(content);
+
+    for (const ls of linkedSlugs) {
+      internalLinkUsage[ls] = (internalLinkUsage[ls] || 0) + 1;
+    }
+
+    posts.push({
+      slug,
+      title: fm.title || "",
+      tags: fm.tags || "",
+      category: fm.category || "",
+      date: fm.date || "",
+    });
+  }
+
+  log("scan", `Found ${posts.length} posts.`);
+  log("scan", `Internal link usage: ${JSON.stringify(internalLinkUsage)}`);
+
+  return { posts, internalLinkUsage };
 }
 
-// ─── DATE UTILITIES ───────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Stage 2: Pick a unique backdate
+// ---------------------------------------------------------------------------
 
-function pickUniqueBackdate(usedDates) {
-  const start = new Date('2025-01-01');
+function pickDate(usedDates) {
+  const start = new Date("2025-01-01");
   const end = new Date();
-  const totalDays = Math.floor((end - start) / 86400000);
+  end.setDate(end.getDate() - 1); // yesterday at latest
 
-  const available = [];
-  for (let i = 0; i <= totalDays; i++) {
-    const d = new Date(start.getTime() + i * 86400000);
-    const iso = d.toISOString().split('T')[0];
-    if (!usedDates.includes(iso)) available.push(iso);
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const range = end - start;
+    const randomMs = Math.floor(Math.random() * range);
+    const candidate = new Date(start.getTime() + randomMs);
+    const dateStr = candidate.toISOString().slice(0, 10);
+    if (!usedDates[dateStr]) {
+      log("date", `Selected unused date: ${dateStr} (attempt ${attempt + 1})`);
+      return dateStr;
+    }
   }
-
-  if (available.length === 0) {
-    throw new Error('All dates between 2025-01-01 and today are exhausted');
-  }
-  return available[Math.floor(Math.random() * available.length)];
+  throw new Error("Could not find an unused date after 20 attempts.");
 }
 
-// ─── SLUG UTILITIES ───────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Stage 3: Discover topic via Tavily
+// ---------------------------------------------------------------------------
 
-function slugify(text) {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 70);
-}
+async function discoverTopic(usedQuestions) {
+  log("discover", "Querying Tavily for restoration owner questions...");
 
-// ─── STEP 1: DISCOVERY ────────────────────────────────────────────────────────
-
-async function discoverQuestions() {
-  console.log('\n[STEP 1] Discovering operator questions via Tavily...');
-
-  const searchQueries = [
-    'restoration contractor business operations management problems Reddit',
-    'water damage restoration company owner workflow dispatch site:reddit.com',
-    'fire restoration contractor estimating cycle time operations',
-    'IICRC restoration business owner operations best practices forum',
-    'restoration company owner hiring dispatch staffing problems',
-    'mitigation restoration contractor invoice carrier approval issues',
+  const queries = [
+    "restoration business owner how do I scale operations",
+    "water mitigation company scaling hiring technicians",
+    "restoration short pay carrier dispute documentation",
+    "restoration hiring technicians onboarding SOP system",
+    "restoration accounts receivable collections cash flow",
+    "restoration referral partners plumber property manager pipeline",
+    "restoration LSA Google local services ads ranking",
+    "restoration job costing estimating profitability",
+    "restoration owner after hours dispatch missed calls",
+    "restoration business marketing without agency",
   ];
 
   const allResults = [];
 
-  for (const query of searchQueries) {
+  for (const query of queries.slice(0, 4)) {
     try {
-      const response = await axios.post(
-        'https://api.tavily.com/search',
+      const res = await axios.post(
+        "https://api.tavily.com/search",
         {
-          api_key: CONFIG.TAVILY_API_KEY,
+          api_key: process.env.TAVILY_API_KEY,
           query,
-          search_depth: 'advanced',
-          max_results: 6,
+          search_depth: "basic",
+          max_results: 8,
           include_answer: false,
-          include_raw_content: false,
+          include_domains: ["reddit.com", "contractortalk.com", "proboards.com", "quora.com"],
         },
-        { timeout: 30000 }
+        { timeout: 15000 }
       );
-      const results = response.data.results || [];
-      allResults.push(...results);
-      console.log(`  "${query.slice(0, 55)}..." => ${results.length} results`);
+      if (res.data && res.data.results) {
+        allResults.push(...res.data.results.map((r) => ({ ...r, query })));
+      }
     } catch (err) {
-      console.warn(`  Tavily query failed: ${err.message}`);
+      log("discover", `Tavily query failed: ${err.message}`);
     }
   }
 
-  // Deduplicate by URL
-  const seen = new Set();
-  const unique = allResults.filter((r) => {
-    if (seen.has(r.url)) return false;
-    seen.add(r.url);
-    return true;
-  });
+  log("discover", `Collected ${allResults.length} raw results from Tavily.`);
 
-  // Filter out negative keywords
-  const filtered = unique.filter((r) => {
-    const text = `${r.title} ${r.content || ''}`.toLowerCase();
-    return !NEGATIVE_KEYWORDS.some((kw) => text.includes(kw.toLowerCase()));
-  });
-
-  console.log(
-    `  Total: ${allResults.length} | Unique: ${unique.length} | After filter: ${filtered.length}`
-  );
-
-  if (filtered.length === 0) {
-    throw new Error(
-      'No operator-focused questions found after negative keyword filtering'
-    );
+  if (allResults.length === 0) {
+    throw new Error("No results from Tavily — cannot continue.");
   }
 
-  return filtered.slice(0, 25).map((r) => ({
-    question_text: r.title,
-    source_url: r.url,
-    snippet: (r.content || '').slice(0, 500),
-  }));
+  // Use Claude to score and pick the best candidate
+  const prompt = `You are an SEO strategist for a restoration business operations consultancy (SatchiOps).
+Target audience: US restoration business OWNERS and OPERATORS (NOT homeowners).
+
+Here are ${allResults.length} search results from restoration industry forums and Reddit:
+
+${allResults
+  .slice(0, 25)
+  .map(
+    (r, i) =>
+      `[${i + 1}] URL: ${r.url}\nTitle: ${r.title}\nSnippet: ${r.content?.slice(0, 200)}\n`
+  )
+  .join("\n")}
+
+Previously used questions (do NOT repeat these):
+${usedQuestions.slice(-20).join("\n") || "(none)"}
+
+Instructions:
+1. Pick the single BEST candidate for a new blog post targeting restoration operators.
+2. Exclude anything aimed at homeowners or general consumers.
+3. Exclude topics too similar to previously used questions.
+4. Return ONLY valid JSON (no markdown, no explanation):
+{
+  "question_text": "the core question or pain point",
+  "source_url": "url of best result",
+  "keyword_cluster": "A|B|C|D|E",
+  "primary_keyword": "main SEO keyword phrase",
+  "secondary_keywords": ["kw1","kw2","kw3","kw4","kw5"],
+  "article_angle": "1-2 sentence description of the recommended article angle"
 }
 
-// ─── STEP 2: KEYWORD EXTRACTION ───────────────────────────────────────────────
+Cluster definitions:
+A = Intake/Dispatch
+B = LSA/Marketing
+C = Documentation/Compliance
+D = Estimating/Cash Flow
+E = Scaling/Operations/HR`;
 
-async function extractKeywords(question) {
-  console.log('\n[STEP 2] Extracting keywords with Claude Haiku...');
-
-  const client = new Anthropic({ apiKey: CONFIG.ANTHROPIC_API_KEY });
-
-  const msg = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 400,
-    messages: [
-      {
-        role: 'user',
-        content: `Given this restoration industry question from a business operator/contractor:
-
-Title: "${question.question_text}"
-Source: ${question.source_url}
-Context: ${question.snippet}
-
-Extract and return ONLY a JSON object with:
-- keyword_cluster: string (2-4 word topical cluster, e.g. "restoration dispatch operations")
-- primary_keyword: string (best single long-tail SEO keyword for operators)
-- secondary_keywords: string[] (array of 4-5 supporting keywords for operators)
-
-Return valid JSON only. No explanation. No markdown fences.`,
-      },
-    ],
+  log("discover", "Sending results to Claude for scoring...");
+  const msg = await anthropic.messages.create({
+    model: "claude-opus-4-5",
+    max_tokens: 512,
+    messages: [{ role: "user", content: prompt }],
   });
 
-  const text = msg.content[0].text.trim();
-  const match = text.match(/\{[\s\S]*?\}/);
-  if (!match) throw new Error('Claude keyword extraction returned no JSON');
+  const raw = msg.content[0].text.trim();
+  log("discover", `Claude raw response: ${raw}`);
 
-  const raw = JSON.parse(match[0]);
-  const parsed = KeywordsSchema.parse(raw);
-  console.log(`  primary_keyword : "${parsed.primary_keyword}"`);
-  console.log(`  keyword_cluster : "${parsed.keyword_cluster}"`);
+  let topic;
+  try {
+    topic = JSON.parse(raw);
+  } catch {
+    // Try to extract JSON from markdown code block
+    const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jsonMatch) {
+      topic = JSON.parse(jsonMatch[1].trim());
+    } else {
+      throw new Error(`Could not parse topic JSON from Claude: ${raw}`);
+    }
+  }
 
-  return { ...question, ...parsed };
+  log("discover", `Selected topic: "${topic.question_text}" | Cluster: ${topic.keyword_cluster}`);
+  return topic;
 }
 
-// ─── STEP 3: INTERNAL LINK SELECTION ─────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Stage 4: Select internal links
+// ---------------------------------------------------------------------------
 
-function selectInternalLinks(primaryKeyword, keywordCluster, state) {
-  const { internal_link_usage } = state;
+const CLUSTER_MAP = {
+  A: ["after-hours-restoration-dispatch-leak", "restoration-lsa-responsiveness-logic"],
+  B: ["restoration-lsa-responsiveness-logic", "restoration-referral-partner-pipeline", "restoration-review-flywheel-automation"],
+  C: ["carrier-ready-restoration-documentation", "xactimate-estimator-throughput-restoration", "restoration-accounts-receivable-collections-workflow"],
+  D: ["revenue-leak-diagnostic", "xactimate-estimator-throughput-restoration", "restoration-accounts-receivable-collections-workflow"],
+  E: ["scale-restoration-fleet-no-chaos", "restoration-tech-onboarding-training-sop", "commercial-residential-restoration-intake-qualification"],
+};
 
-  // Only pick from pillar slugs still under their cap
-  const eligible = PILLAR_SLUGS.filter(
-    (slug) => (internal_link_usage[slug] || 0) < PILLAR_MAX_LINKS
+function selectInternalLinks(cluster, internalLinkUsage, allPosts, newSlug) {
+  const CAP = 3;
+  const allSlugs = allPosts.map((p) => p.slug);
+  const preferred = (CLUSTER_MAP[cluster] || []).filter(
+    (s) => s !== newSlug && allSlugs.includes(s) && (internalLinkUsage[s] || 0) < CAP
   );
 
-  if (eligible.length === 0) return [];
+  // Fill remaining from other clusters if needed
+  const others = allSlugs.filter(
+    (s) =>
+      s !== newSlug &&
+      !preferred.includes(s) &&
+      (internalLinkUsage[s] || 0) < CAP
+  );
 
-  // Score by keyword relevance
-  const query = `${primaryKeyword} ${keywordCluster}`.toLowerCase();
-  const scored = eligible
-    .map((slug) => {
-      const words = slug.replace(/-/g, ' ');
-      const score = words.split(' ').filter((w) => w.length > 3 && query.includes(w)).length;
-      return { slug, score };
-    })
-    .sort((a, b) => b.score - a.score);
+  const combined = [...preferred, ...others];
+  const chosen = combined.slice(0, 4);
 
-  const withScore = scored.filter((s) => s.score > 0);
-
-  // Determine target count (2–4 if possible, else 1)
-  let count;
-  if (withScore.length >= 4) count = 2 + Math.floor(Math.random() * 3); // 2, 3, or 4
-  else if (withScore.length >= 2) count = 2;
-  else if (withScore.length === 1) count = 1;
-  else count = 1; // fallback: first eligible regardless of score
-
-  const candidates = withScore.length > 0 ? withScore : scored;
-  return candidates
-    .slice(0, count)
-    .map((s) => s.slug)
-    .slice(0, BRIEFING_MAX_LINKS);
+  log("links", `Selected ${chosen.length} internal links: ${chosen.join(", ")}`);
+  return chosen;
 }
 
-// ─── STEP 4: WRITE MDX POST ───────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Stage 5: Generate MDX post with Claude
+// ---------------------------------------------------------------------------
 
-async function writeMDXPost(question, backdate, internalLinks) {
-  console.log('\n[STEP 3] Writing MDX post with Claude Opus...');
+async function generatePost(topic, targetDate, chosenLinks, allPosts) {
+  const linkLines = chosenLinks
+    .map((slug) => {
+      const post = allPosts.find((p) => p.slug === slug);
+      const title = post ? post.title : slug.replace(/-/g, " ");
+      return `[Related: ${title}](/blog/${slug})`;
+    })
+    .join("\n");
 
-  const slug = slugify(question.question_text.slice(0, 65));
-  const client = new Anthropic({ apiKey: CONFIG.ANTHROPIC_API_KEY });
+  const prompt = `You are a senior technical writer for SatchiOps, a systems consultancy for US restoration business owners.
+Write a complete MDX blog post based on the topic below. Target audience: restoration business OWNERS and OPERATORS only.
 
-  const linkSection =
-    internalLinks.length > 0
-      ? `Weave these internal links naturally into the article body (markdown format):
-${internalLinks.map((s) => `- [relevant anchor text](/blog/${s})`).join('\n')}`
-      : 'No internal links required for this post.';
+TOPIC:
+- Question/Pain: ${topic.question_text}
+- Primary keyword: ${topic.primary_keyword}
+- Secondary keywords: ${topic.secondary_keywords.join(", ")}
+- Article angle: ${topic.article_angle}
+- Cluster: ${topic.keyword_cluster}
 
-  const tagsStr = (question.secondary_keywords || [])
-    .slice(0, 3)
-    .map((k) => `"${k}"`)
-    .join(', ');
+REQUIREMENTS (ALL MANDATORY — post will be rejected if any are missing):
+1. Word count: 1,800–2,500 words
+2. >= 10 headings (H2 and H3 combined)
+3. At least one checklist with >= 5 bullets (use - [ ] format)
+4. At least one SOP/template inside a fenced code block with >= 10 lines
+5. Include these internal links naturally in the body (do NOT add extra ones):
+${linkLines}
+6. End with this EXACT CTA block (copy verbatim, no changes):
 
-  const prompt = `You are a technical content writer for SatchiOps — a systems consultancy for restoration contractors and company owners.
-
-Write a single MDX blog post (1,900–2,400 words) answering this operator question:
-"${question.question_text}"
-
-Context: ${question.snippet}
-PRIMARY KEYWORD: ${question.primary_keyword}
-SECONDARY KEYWORDS: ${(question.secondary_keywords || []).join(', ')}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-EXACT OUTPUT STRUCTURE — follow every rule:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-[BLOCK 1] YAML FRONTMATTER — copy this format exactly:
----
-title: "<operator-focused title, 50-70 chars>"
-description: "<2-sentence meta description using primary keyword>"
-date: "${backdate}"
-updated: "${backdate}"
-slug: "${slug}"
-tags: [${tagsStr}]
-category: "Operations"
-authorName: "Kenny"
-authorTitle: "Systems Architect"
-reviewedBy: "Technical Team"
----
-
-[BLOCK 2] H1 HEADING — same text as frontmatter title:
-# <title>
-
-[BLOCK 3] AUTHORITY DISCLAIMER — copy VERBATIM immediately after H1, on its own line:
-> This briefing was architected by SatchiOps systems engineers and cross-referenced with IICRC S500 standards for operational accuracy.
-
-[BLOCK 4] ARTICLE BODY — rules:
-- Minimum 10 headings total (## and ### mixed, spread throughout the full article)
-- Write in direct, technical, operator-focused prose — no marketing fluff
-- Use concrete numbers, timeframes, and operational specifics
-- Do NOT mention anyone named Jason
-- Do NOT write fake statistics or fabricated percentages
-- Do NOT make certification claims (never say "we are IICRC certified")
-- Minimum 1,800 words of body content
-
-[BLOCK 5] CHECKLIST — exactly one checklist with at least 5 items:
-- [ ] Step or check item one
-- [ ] Step or check item two
-(continue for 5+ items)
-
-[BLOCK 6] OPERATIONAL SOP BLOCK — exactly one code fence labeled "sop" with at least 10 lines:
-\`\`\`sop
-# SOP: [Name of the SOP]
-Version: 1.0 | Owner: Operations Lead
----
-Step 1: ...
-Step 2: ...
-Step 3: ...
-Step 4: ...
-Step 5: ...
-Step 6: ...
-Step 7: ...
-Step 8: ...
-Step 9: ...
-Step 10: ...
-\`\`\`
-
-[BLOCK 7] INTERNAL LINKS:
-${linkSection}
-
-[BLOCK 8] END CTA — copy this VERBATIM as the very last content in the file:
 ---
 ### Ready to plug the leak?
 If you want this installed into your shop (intake → dispatch → job file → cash collection) without hiring more staff, I can help.
 **Book the 15-min audit here:** https://satchiops.com/
 ---
 
-Return ONLY the complete MDX content. No preamble. No "Here is your post:" commentary.`;
+FORBIDDEN: Do NOT mention Jason, certifications (WRT/ASD/IICRC), partnerships, or invent statistics.
+Author is always: Kenny | Systems Architect
 
-  const msg = await client.messages.create({
-    model: 'claude-opus-4-5-20251101',
-    max_tokens: 5500,
-    messages: [{ role: 'user', content: prompt }],
+FRONTMATTER (output valid YAML between --- delimiters):
+- title: compelling, keyword-rich
+- description: 150-160 chars, includes primary keyword
+- date: "${targetDate}"
+- updated: "${targetDate}"
+- slug: kebab-case, descriptive, includes primary keyword
+- tags: comma-separated quoted strings
+- category: one of: Operations | Marketing | Finance | Compliance | HR
+- authorName: "Kenny"
+- authorTitle: "Systems Architect"
+- complianceLevel: "Operator-Ready" or "Carrier-Ready"
+- canonical: "https://satchiops.com/blog/<slug>"
+- noindex: false
+- draft: false
+
+Also include a commented SEO Plan block after frontmatter:
+{/* SEO Plan
+primary_keyword: ${topic.primary_keyword}
+secondary_keywords: ${topic.secondary_keywords.join(", ")}
+intent: informational
+*/}
+
+Output the full MDX file content only. No explanation outside the file.`;
+
+  log("generate", "Sending generation prompt to Claude...");
+  const msg = await anthropic.messages.create({
+    model: "claude-opus-4-5",
+    max_tokens: 8192,
+    messages: [{ role: "user", content: prompt }],
   });
 
-  const content = msg.content[0].text;
-  const wordCount = content.split(/\s+/).filter((w) => w.length > 0).length;
-  console.log(`  Generated ${wordCount} words | slug: "${slug}"`);
-
-  return { content, slug };
+  const content = msg.content[0].text.trim();
+  log("generate", `Generated ${content.split(" ").length} words (approx).`);
+  return content;
 }
 
-// ─── QUALITY GATE 1: PROGRAMMATIC ────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Stage 6: Editor audit
+// ---------------------------------------------------------------------------
 
-function qualityGate1(mdxContent) {
-  console.log('\n[QUALITY GATE 1] Programmatic checks...');
-  const errors = [];
+async function auditPost(content, allPosts) {
+  log("audit", "Running editor audit via Claude...");
 
-  // Word count >= 1,600
-  const wordCount = mdxContent.split(/\s+/).filter((w) => w.length > 0).length;
-  if (wordCount < 1600) {
-    errors.push(`Word count ${wordCount} < 1,600 minimum`);
-  } else {
-    console.log(`  [PASS] Word count: ${wordCount}`);
-  }
-
-  // Heading count >= 10
-  const headings = (mdxContent.match(/^#{1,3}\s+.+/gm) || []).length;
-  if (headings < 10) {
-    errors.push(`Heading count ${headings} < 10 minimum`);
-  } else {
-    console.log(`  [PASS] Headings: ${headings}`);
-  }
-
-  // CTA block present
-  if (!mdxContent.includes(CTA_MARKER)) {
-    errors.push(`CTA block missing — "${CTA_MARKER}" string not found`);
-  } else {
-    console.log(`  [PASS] CTA block present`);
-  }
-
-  if (errors.length > 0) {
-    errors.forEach((e) => console.error(`  [FAIL] ${e}`));
-    return false;
-  }
-
-  console.log('  Quality Gate 1: ALL CHECKS PASSED');
-  return true;
+  const prompt = `You are a strict technical editor for a restoration industry blog.
+Audit the following MDX post and return ONLY valid JSON with this shape:
+{
+  "pass": true|false,
+  "word_count": number,
+  "heading_count": number,
+  "checklist_bullets": number,
+  "sop_lines": number,
+  "has_cta": true|false,
+  "has_internal_links": true|false,
+  "banned_content_found": false|"description of banned content",
+  "failure_reasons": ["reason1", "reason2"]
 }
 
-// ─── QUALITY GATE 2: CLAUDE EDITORIAL AUDIT ──────────────────────────────────
+Audit rules (FAIL if ANY violated):
+- word_count < 1600 → FAIL
+- heading_count < 10 → FAIL
+- checklist_bullets < 5 → FAIL
+- sop_lines < 10 → FAIL
+- has_cta is false → FAIL
+- has_internal_links is false → FAIL
+- banned_content_found is not false → FAIL
 
-async function qualityGate2(mdxContent) {
-  console.log('\n[QUALITY GATE 2] Claude editorial audit...');
+MDX content to audit:
+\`\`\`
+${content.slice(0, 6000)}
+\`\`\``;
 
-  const client = new Anthropic({ apiKey: CONFIG.ANTHROPIC_API_KEY });
-
-  const msg = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 400,
-    messages: [
-      {
-        role: 'user',
-        content: `You are a strict editorial quality auditor. Audit the MDX content below for exactly THREE banned content rules. Be precise — only flag CLEAR violations, not ambiguous cases.
-
-BANNED CONTENT RULES (flag only clear, unambiguous violations):
-
-RULE 1 — JASON NAME BAN:
-Flag ONLY if the first name "Jason" appears as someone's actual name (e.g. "Jason Smith", "Call Jason", "Ask Jason").
-Do NOT flag: words containing "jason" as part of another word, technical terms, or any other usage.
-
-RULE 2 — FAKE STATISTICS BAN:
-Flag ONLY if a specific percentage or numerical statistic is presented as a verified industry fact with a made-up source (e.g. "Studies show 73% of contractors fail within 2 years").
-Do NOT flag: general business advice, rough estimates without citation claims, ranges, or the IICRC S500 authority disclaimer.
-
-RULE 3 — CERTIFICATION CLAIM BAN:
-Flag ONLY if the content claims the author/company IS certified (e.g. "we are IICRC certified", "our team holds IICRC certification", "SatchiOps is an IICRC member").
-Do NOT flag: references to IICRC standards as a methodology benchmark (e.g. "cross-referenced with IICRC S500 standards"). Referencing a standard is NOT claiming certification.
-
-CONTENT TO AUDIT:
----
-${mdxContent.slice(0, 7500)}
----
-
-Respond ONLY with valid JSON:
-{"pass": true, "violations": []}
-or if violations exist:
-{"pass": false, "violations": ["exact quote + rule violated"]}`,
-      },
-    ],
+  const msg = await anthropic.messages.create({
+    model: "claude-opus-4-5",
+    max_tokens: 512,
+    messages: [{ role: "user", content: prompt }],
   });
 
-  const text = msg.content[0].text.trim();
-  const match = text.match(/\{[\s\S]*?\}/);
-  if (!match) {
-    console.error('  [FAIL] Audit response unparseable — failing safe');
-    return false;
-  }
-
-  const result = AuditSchema.parse(JSON.parse(match[0]));
-  if (!result.pass) {
-    console.error('  [FAIL] Quality Gate 2 violations found:');
-    result.violations.forEach((v) => console.error(`    - ${v}`));
-    return false;
-  }
-
-  console.log('  [PASS] Quality Gate 2: No violations found');
-  return true;
-}
-
-// ─── GITHUB API COMMIT ────────────────────────────────────────────────────────
-
-async function commitFileToGitHub(repoPath, content, commitMessage) {
-  const [owner, repo] = CONFIG.GITHUB_REPO.split('/');
-  const headers = {
-    Authorization: `token ${CONFIG.GITHUB_TOKEN}`,
-    Accept: 'application/vnd.github.v3+json',
-    'Content-Type': 'application/json',
-    'User-Agent': 'satchiops-seo-bot/1.0',
-  };
-
-  let sha;
+  const raw = msg.content[0].text.trim();
+  let audit;
   try {
-    const existing = await axios.get(
-      `https://api.github.com/repos/${owner}/${repo}/contents/${repoPath}`,
-      { headers }
-    );
-    sha = existing.data.sha;
+    audit = JSON.parse(raw);
   } catch {
-    // File doesn't exist yet — create it fresh
+    const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jsonMatch) {
+      audit = JSON.parse(jsonMatch[1].trim());
+    } else {
+      throw new Error(`Could not parse audit JSON: ${raw}`);
+    }
   }
 
-  const body = {
-    message: commitMessage,
-    content: Buffer.from(content, 'utf-8').toString('base64'),
-    ...(sha ? { sha } : {}),
-  };
-
-  await axios.put(
-    `https://api.github.com/repos/${owner}/${repo}/contents/${repoPath}`,
-    body,
-    { headers }
-  );
+  log("audit", `Audit result: ${JSON.stringify(audit)}`);
+  return audit;
 }
 
-async function deployToGitHub(slug, mdxContent, state) {
-  console.log(`\n[STEP 5] Committing to GitHub (${CONFIG.GITHUB_REPO})...`);
+// ---------------------------------------------------------------------------
+// Stage 7: Write files
+// ---------------------------------------------------------------------------
 
-  if (CONFIG.DRY_RUN) {
-    console.log('  [DRY RUN] Skipping GitHub commit');
-    return;
+function writePost(content, state, targetDate, slug, topic, chosenLinks) {
+  const filePath = path.join(POSTS_DIR, `${slug}.mdx`);
+  fs.writeFileSync(filePath, content + "\n");
+  log("write", `Post written to ${filePath}`);
+
+  state.used_dates[targetDate] = slug;
+  state.internal_link_usage = state.internal_link_usage || {};
+  for (const ls of chosenLinks) {
+    state.internal_link_usage[ls] = (state.internal_link_usage[ls] || 0) + 1;
   }
+  if (!state.used_questions) state.used_questions = [];
+  state.used_questions.push(topic.question_text.toLowerCase().trim());
 
-  // Commit the MDX post
-  const postPath = `${CONFIG.CONTENT_DIR}/${slug}.mdx`;
-  await commitFileToGitHub(
-    postPath,
-    mdxContent,
-    `feat(seo-bot): publish briefing "${slug}"`
-  );
-  console.log(`  Committed: ${postPath}`);
+  if (!state.run_log) state.run_log = [];
+  state.run_log.push({
+    date: targetDate,
+    slug,
+    question_text: topic.question_text,
+    source_url: topic.source_url,
+    chosen_links: chosenLinks,
+    ran_at: new Date().toISOString(),
+  });
 
-  // Commit updated state file
-  await commitFileToGitHub(
-    CONFIG.STATE_PATH,
-    JSON.stringify(state, null, 2),
-    `chore(seo-bot): update bot_state after "${slug}"`
-  );
-  console.log(`  Committed: ${CONFIG.STATE_PATH}`);
+  // Update post_index_cache
+  if (!state.post_index_cache) {
+    state.post_index_cache = { last_indexed_at: null, known_slugs: [], known_urls: [] };
+  }
+  if (!state.post_index_cache.known_slugs.includes(slug)) {
+    state.post_index_cache.known_slugs.push(slug);
+    state.post_index_cache.known_urls.push(`${SITE_BASE}/blog/${slug}`);
+  }
+  state.post_index_cache.last_indexed_at = new Date().toISOString();
+
+  writeBotState(state);
+  log("write", "bot_state.json updated.");
 }
 
-// ─── POLLING LOOP ─────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Stage 8: Deploy-ready check + sitemap ping
+// ---------------------------------------------------------------------------
 
-async function pollUntilLive(slug, maxMinutes = 30) {
-  const url = `https://satchiops.com/blog/${slug}`;
-  const maxAttempts = Math.floor((maxMinutes * 60) / 30);
+async function waitForDeploy(slug) {
+  const url = `${SITE_BASE}/blog/${slug}`;
+  const maxMs = 10 * 60 * 1000;
+  const start = Date.now();
+  let delay = 15000;
 
-  console.log(`\n[STEP 6] Polling ${url}`);
-  console.log(`  Interval: 30s | Max wait: ${maxMinutes} min (${maxAttempts} attempts)`);
+  log("deploy", `Polling ${url} for HTTP 200 (max 10 min)...`);
 
-  if (CONFIG.DRY_RUN) {
-    console.log('  [DRY RUN] Skipping poll loop');
-    return false;
-  }
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  while (Date.now() - start < maxMs) {
     try {
-      const response = await axios.get(url, {
-        timeout: 15000,
-        maxRedirects: 5,
-        validateStatus: null,
-      });
-      if (response.status === 200) {
-        console.log(`  [LIVE] URL returned HTTP 200 after ~${attempt * 30}s`);
+      const res = await axios.get(url, { timeout: 10000 });
+      if (res.status === 200) {
+        log("deploy", `Post is live at ${url}`);
         return true;
       }
-      console.log(`  Attempt ${attempt}/${maxAttempts} — HTTP ${response.status}, waiting 30s...`);
-    } catch (err) {
-      console.log(`  Attempt ${attempt}/${maxAttempts} — ${err.code || err.message}, waiting 30s...`);
+    } catch {
+      // Not live yet
     }
-
-    if (attempt < maxAttempts) {
-      await new Promise((r) => setTimeout(r, 30000));
-    }
+    log("deploy", `Not live yet. Waiting ${delay / 1000}s...`);
+    await new Promise((r) => setTimeout(r, delay));
+    delay = Math.min(delay * 1.5, 60000);
   }
 
-  console.warn(`  [TIMEOUT] URL did not go live within ${maxMinutes} minutes`);
+  log("deploy", "Timed out waiting for deploy. Skipping sitemap ping.");
   return false;
 }
 
-// ─── SITEMAP PING ─────────────────────────────────────────────────────────────
-
 async function pingSitemap() {
-  const sitemapUrl = 'https://satchiops.com/sitemap.xml';
-  const pingUrl = `https://www.google.com/ping?sitemap=${encodeURIComponent(sitemapUrl)}`;
-
-  if (CONFIG.DRY_RUN) {
-    console.log('\n[STEP 7] [DRY RUN] Skipping sitemap ping');
-    return;
-  }
-
+  const pingUrl = `https://www.google.com/ping?sitemap=${SITE_BASE}/sitemap.xml`;
   try {
     await axios.get(pingUrl, { timeout: 10000 });
-    console.log('\n[STEP 7] Google sitemap ping sent successfully');
+    log("sitemap", `Pinged Google sitemap: ${pingUrl}`);
   } catch (err) {
-    // Non-blocking — Google ping is best-effort
-    console.warn(`\n[STEP 7] Sitemap ping failed (non-blocking): ${err.message}`);
+    log("sitemap", `Sitemap ping failed (non-fatal): ${err.message}`);
   }
 }
 
-// ─── MAIN PIPELINE ────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
 
 async function main() {
-  console.log('═══════════════════════════════════════════════════════');
-  console.log('  CLAUDE BOT SEO — satchiops.com Autopublishing Agent');
-  console.log(`  Started : ${new Date().toISOString()}`);
-  if (CONFIG.DRY_RUN) console.log('  MODE    : DRY RUN (no commits or pings)');
-  console.log('═══════════════════════════════════════════════════════');
+  log("main", "SEO bot starting...");
 
-  validateConfig();
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error("Missing ANTHROPIC_API_KEY");
+  if (!process.env.TAVILY_API_KEY) throw new Error("Missing TAVILY_API_KEY");
 
-  const state = loadState();
-  console.log(`\nState: ${state.run_log.length} previous runs | ${state.used_dates.length} used dates`);
+  // 1. Scan posts
+  const { posts, internalLinkUsage } = scanPosts();
 
-  const runRecord = {
-    timestamp: new Date().toISOString(),
-    status: 'failed',
-    slug: null,
-    error: null,
-  };
-
-  try {
-    // ── STEP 1: Discover operator questions
-    const questions = await discoverQuestions();
-
-    // ── STEP 2: Extract keywords from best candidate
-    const question = await extractKeywords(questions[0]);
-
-    // ── STEP 2b: Pick unique backdate
-    const backdate = pickUniqueBackdate(state.used_dates);
-    console.log(`\n  Backdate selected: ${backdate}`);
-
-    // ── STEP 2c: Select internal links (Hub & Spoke)
-    const internalLinks = selectInternalLinks(
-      question.primary_keyword,
-      question.keyword_cluster,
-      state
+  // 2. Load bot state
+  const state = readBotState();
+  // Merge scanned usage with any previously recorded counts (take max)
+  for (const [slug, count] of Object.entries(internalLinkUsage)) {
+    state.internal_link_usage[slug] = Math.max(
+      state.internal_link_usage[slug] || 0,
+      count
     );
-    console.log(
-      `  Internal links  : ${internalLinks.length > 0 ? internalLinks.join(', ') : 'none'}`
-    );
+  }
 
-    // ── STEP 3: Write MDX post with Claude Opus
-    const { content: mdxContent, slug } = await writeMDXPost(
-      question,
-      backdate,
-      internalLinks
-    );
+  // 3. Pick date
+  const targetDate = pickDate(state.used_dates);
 
-    // ── STEP 4a: Quality Gate 1 (programmatic)
-    const gate1Pass = qualityGate1(mdxContent);
-    if (!gate1Pass) {
-      throw new Error('Quality Gate 1 FAILED — aborting commit');
-    }
+  // 4. Discover topic
+  const topic = await discoverTopic(state.used_questions || []);
 
-    // ── STEP 4b: Quality Gate 2 (Claude audit)
-    const gate2Pass = await qualityGate2(mdxContent);
-    if (!gate2Pass) {
-      throw new Error('Quality Gate 2 FAILED — aborting commit');
-    }
+  // 5. Select internal links
+  const chosenLinks = selectInternalLinks(
+    topic.keyword_cluster,
+    state.internal_link_usage,
+    posts,
+    null // slug not known yet
+  );
 
-    // ── Update state before commit (so state is consistent)
-    state.used_dates.push(backdate);
-    internalLinks.forEach((s) => {
-      state.internal_link_usage[s] = (state.internal_link_usage[s] || 0) + 1;
-    });
-    runRecord.slug = slug;
-    runRecord.status = 'quality_passed';
+  // 6. Generate post
+  const content = await generatePost(topic, targetDate, chosenLinks, posts);
 
-    // ── STEP 5: Commit MDX + state to GitHub
-    await deployToGitHub(slug, mdxContent, state);
-    runRecord.status = 'committed';
+  // 7. Parse slug from generated frontmatter
+  const fm = parseFrontmatter(content);
+  const slug = fm.slug || `restoration-${targetDate}`;
+  log("main", `Post slug: ${slug}`);
 
-    // ── Save state locally as well (backup for workflow git push)
-    state.run_log.push(runRecord);
-    saveStateLocally(state);
-
-    // ── STEP 6: Poll URL every 30s until HTTP 200
-    const isLive = await pollUntilLive(slug);
-    if (isLive) {
-      // ── STEP 7: Ping Google sitemap only after URL is confirmed live
-      await pingSitemap();
-      runRecord.status = 'indexed';
-    } else {
-      runRecord.status = 'committed_not_live';
-    }
-
-    console.log('\n╔══════════════════════════════════════╗');
-    console.log('║  PIPELINE COMPLETE                   ║');
-    console.log(`║  slug   : ${slug.slice(0, 26).padEnd(26)} ║`);
-    console.log(`║  status : ${runRecord.status.padEnd(26)} ║`);
-    console.log('╚══════════════════════════════════════╝');
-  } catch (err) {
-    runRecord.error = err.message;
-    console.error(`\n✗ PIPELINE FAILED: ${err.message}`);
-
-    // Always persist the run record even on failure
-    state.run_log.push(runRecord);
-    saveStateLocally(state);
-
+  // 8. Audit
+  const audit = await auditPost(content, posts);
+  if (!audit.pass) {
+    log("audit", `FAIL — aborting publish. Reasons: ${audit.failure_reasons.join("; ")}`);
     process.exit(1);
   }
+  log("audit", "PASS — proceeding to publish.");
+
+  // 9. Write files
+  writePost(content, state, targetDate, slug, topic, chosenLinks);
+
+  // 10. Wait for deploy + ping sitemap
+  const isLive = await waitForDeploy(slug);
+  if (isLive) {
+    await pingSitemap();
+  }
+
+  log("main", "SEO bot completed successfully.");
 }
 
 main().catch((err) => {
-  console.error(`Fatal: ${err.message}`);
+  console.error("[seo-bot][ERROR]", err.message);
   process.exit(1);
 });
