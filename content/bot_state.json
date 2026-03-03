@@ -1,0 +1,27 @@
+{
+  "used_dates": [
+    "2025-06-29"
+  ],
+  "internal_link_usage": {
+    "revenue-leak-diagnostic": 0,
+    "scale-restoration-fleet-no-chaos": 1,
+    "xactimate-estimator-throughput-restoration": 1,
+    "carrier-ready-restoration-documentation": 0,
+    "restoration-lsa-responsiveness-logic": 0,
+    "after-hours-restoration-dispatch-leak": 0
+  },
+  "run_log": [
+    {
+      "timestamp": "2026-03-03T04:16:04.027Z",
+      "status": "failed",
+      "slug": null,
+      "error": "Quality Gate 2 FAILED — aborting commit"
+    },
+    {
+      "timestamp": "2026-03-03T04:18:02.538Z",
+      "status": "committed",
+      "slug": "restoration-company-rsmallbusiness-reddit",
+      "error": null
+    }
+  ]
+}
