@@ -1,7 +1,14 @@
 import { notFound } from "next/navigation"
 import Link from "next/link"
+import Script from "next/script"
 import { getAllSlugs, getPostBySlug } from "@/lib/posts"
 import { MDXRemote } from "@/components/mdx-remote"
+
+const toAbsoluteUrl = (p?: string) => {
+  if (!p) return undefined
+  if (p.startsWith("http://") || p.startsWith("https://")) return p
+  return `https://satchiops.com${p.startsWith("/") ? p : `/${p}`}`
+}
 
 export function generateStaticParams() {
   return getAllSlugs().map((slug) => ({ slug }))
@@ -23,8 +30,37 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
 
   if (!post || post.meta.draft) notFound()
 
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    "headline": post.meta.title,
+    "description": post.meta.description,
+    "datePublished": post.meta.date,
+    "dateModified": post.meta.updated || post.meta.date,
+    "author": {
+      "@type": "Person",
+      "name": post.meta.authorName || post.meta.author || "Kenny",
+      "jobTitle": post.meta.authorTitle || "Systems Architect"
+    },
+    "publisher": {
+      "@type": "Organization",
+      "@id": "https://satchiops.com/#organization",
+      "name": "SatchiOps"
+    },
+    "mainEntityOfPage": {
+      "@type": "WebPage",
+      "@id": post.meta.canonical || `https://satchiops.com/blog/${slug}`
+    },
+    ...(post.meta.heroImage ? { "image": [toAbsoluteUrl(post.meta.heroImage)] } : {})
+  }
+
   return (
     <main className="min-h-screen bg-background">
+      <Script
+        id={`jsonld-blog-${slug}`}
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       {/* Post header */}
       <div className="mx-auto max-w-3xl px-6 pt-12 md:px-10 md:pt-16">
         <Link
