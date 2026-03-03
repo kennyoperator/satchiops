@@ -526,7 +526,7 @@ async function deployToGitHub(slug, mdxContent, state) {
   await commitFileToGitHub(
     postPath,
     mdxContent,
-    `feat(seo-bot): publish briefing "${slug}"\n\nAutopublished by CLAUDE BOT SEO [skip ci]`
+    `feat(seo-bot): publish briefing "${slug}"`
   );
   console.log(`  Committed: ${postPath}`);
 
