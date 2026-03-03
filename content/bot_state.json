@@ -1,11 +1,29 @@
 {
-  "used_dates": {},
-  "internal_link_usage": {},
-  "used_questions": [],
-  "run_log": [],
-  "post_index_cache": {
-    "last_indexed_at": null,
-    "known_slugs": [],
-    "known_urls": []
-  }
+  "used_dates": [
+    "2025-06-29",
+    "2025-08-13",
+    "2025-09-20"
+  ],
+  "internal_link_usage": {
+    "revenue-leak-diagnostic": 0,
+    "scale-restoration-fleet-no-chaos": 3,
+    "xactimate-estimator-throughput-restoration": 3,
+    "carrier-ready-restoration-documentation": 2,
+    "restoration-lsa-responsiveness-logic": 0,
+    "after-hours-restoration-dispatch-leak": 0
+  },
+  "run_log": [
+    {
+      "timestamp": "2026-03-03T04:16:04.027Z",
+      "status": "failed",
+      "slug": null,
+      "error": "Quality Gate 2 FAILED — aborting commit"
+    },
+    {
+      "timestamp": "2026-03-03T04:18:02.538Z",
+      "status": "committed",
+      "slug": "restoration-company-rsmallbusiness-reddit",
+      "error": null
+    }
+  ]
 }
