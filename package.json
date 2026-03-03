@@ -1,0 +1,19 @@
+{
+  "name": "satchiops-seo-bot",
+  "version": "1.0.0",
+  "description": "CLAUDE BOT SEO — Autopublishing Agent for satchiops.com",
+  "main": "scripts/seo-bot.js",
+  "scripts": {
+    "seo-bot": "node scripts/seo-bot.js",
+    "seo-bot:dry": "DRY_RUN=true node scripts/seo-bot.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "axios": "^1.6.7",
+    "dotenv": "^16.4.5",
+    "zod": "^3.22.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
