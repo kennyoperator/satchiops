@@ -8,7 +8,7 @@ export default function FinalCTA() {
           Ready to Scale?
         </p>
         <h2 className="mb-4 text-balance text-2xl font-black tracking-tight text-white md:text-3xl">
-          Secure Your 5-Day Implementation Slot.
+          Secure Your 24-48 Hour Implementation Slot.
         </h2>
         <p className="mb-7 text-sm leading-relaxed text-white/60">
           Every day you wait, your 2:00 AM calls are hitting voicemail. Let&apos;s audit your revenue leak in 15 minutes and fix it this week.
