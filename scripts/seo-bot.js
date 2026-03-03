@@ -534,7 +534,7 @@ async function deployToGitHub(slug, mdxContent, state) {
   await commitFileToGitHub(
     CONFIG.STATE_PATH,
     JSON.stringify(state, null, 2),
-    `chore(seo-bot): update bot_state after "${slug}" [skip ci]`
+    `chore(seo-bot): update bot_state after "${slug}"`
   );
   console.log(`  Committed: ${CONFIG.STATE_PATH}`);
 }
