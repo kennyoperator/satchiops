@@ -21,7 +21,7 @@ const CONFIG = {
   TAVILY_API_KEY: process.env.TAVILY_API_KEY,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
   GITHUB_TOKEN: process.env.GITHUB_TOKEN,
-  GITHUB_REPO: process.env.GITHUB_REPO || 'kennyoperator/<YOUR-WEBSITE-REPO>',
+  GITHUB_REPO: process.env.GITHUB_REPO || 'kennyoperator/satchiops',
   CONTENT_DIR: process.env.CONTENT_DIR || 'content/posts',
   STATE_PATH: process.env.STATE_PATH || 'content/bot_state.json',
   DRY_RUN: process.env.DRY_RUN === 'true',
