@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { GoogleAnalytics } from '@next/third-parties/google'
+import Script from 'next/script'
 import './globals.css'
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -38,6 +39,30 @@ export default function RootLayout({
     <html lang="en" className={inter.variable}>
       <body className="font-sans antialiased">
         {children}
+        <Script
+          id="global-schema"
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@graph": [
+                {
+                  "@type": "Organization",
+                  "@id": "https://satchiops.com/#organization",
+                  "name": "SatchiOps",
+                  "url": "https://satchiops.com/"
+                },
+                {
+                  "@type": "WebSite",
+                  "@id": "https://satchiops.com/#website",
+                  "url": "https://satchiops.com/",
+                  "name": "SatchiOps",
+                  "publisher": { "@id": "https://satchiops.com/#organization" }
+                }
+              ]
+            })
+          }}
+        />
         <Analytics />
         <GoogleAnalytics gaId="G-504CGXG712" />
       </body>
