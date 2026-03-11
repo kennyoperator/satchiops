@@ -68,19 +68,6 @@ export default function AnnouncementBar() {
             ))}
           </div>
         </div>
-        <style jsx>{`
-          @keyframes ticker {
-            0% {
-              transform: translateX(0);
-            }
-            100% {
-              transform: translateX(-33.333%);
-            }
-          }
-          .animate-ticker {
-            animation: ticker 30s linear infinite;
-          }
-        `}</style>
       </div>
     </>
   )
