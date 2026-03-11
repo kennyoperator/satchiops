@@ -1,5 +1,3 @@
-import Image from "next/image"
-
 const rows = [
   {
     feature: "What they sell",
@@ -122,19 +120,6 @@ export default function ComparisonSection() {
               ))}
             </tbody>
           </table>
-        </div>
-
-        {/* Screenshot reference image */}
-        <div className="mt-6 border border-black overflow-hidden">
-          <div className="relative w-full">
-            <Image
-              src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Screenshot%202026-03-11%20at%203.41.19%E2%80%AFPM-oaNE0MTNyZnlEoYNuSeZCikEDt0waK.png"
-              alt="Comparison: Lead Gen Agencies vs SatchiOps — feature breakdown"
-              width={860}
-              height={1100}
-              className="w-full h-auto"
-            />
-          </div>
         </div>
       </div>
     </section>
