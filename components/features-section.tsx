@@ -27,6 +27,12 @@ export default function FeaturesSection() {
           <h2 className="text-balance text-lg font-black tracking-tight text-foreground md:text-xl">
             Infrastructure, Not Software.
           </h2>
+          <p className="mt-2 max-w-xl font-sans text-sm font-black uppercase tracking-tight text-foreground">
+            Our Custom AI is Specialized on Real Restoration Jobs.
+          </p>
+          <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">
+            Not a generic chatbot. Every prompt, workflow, and guardrail is trained on the specific language, documentation requirements, and carrier logic of the restoration industry.
+          </p>
         </div>
         <div className="grid grid-cols-1 gap-px bg-black sm:grid-cols-3">
           {features.map((f) => (
