@@ -34,6 +34,23 @@ export default function HeroSection() {
           />
         </div>
 
+        {/* Stats bar */}
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-6 border border-black px-6 py-4">
+          <div className="text-center">
+            <p className="font-sans text-2xl font-black text-foreground md:text-3xl">$7,500,000</p>
+            <p className="mt-0.5 font-sans text-[10px] uppercase tracking-widest text-muted-foreground">
+              Revenue Recovered
+            </p>
+          </div>
+          <div className="hidden h-8 w-px bg-black/20 md:block" />
+          <div className="text-center">
+            <p className="font-sans text-2xl font-black text-foreground md:text-3xl">for Restoration</p>
+            <p className="mt-0.5 font-sans text-[10px] uppercase tracking-widest text-muted-foreground">
+              Businesses Like Yours
+            </p>
+          </div>
+        </div>
+
         {/* Trust bar */}
         <p className="mt-5 font-sans text-[10px] uppercase tracking-widest text-muted-foreground">
           15 minutes. No pitch if it&apos;s not a fit.

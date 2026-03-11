@@ -2,6 +2,7 @@ import AnnouncementBar from "@/components/announcement-bar"
 import HeroSection from "@/components/hero-section"
 import CarrierReadySection from "@/components/carrier-ready-section"
 import AgitationSection from "@/components/agitation-section"
+import ComparisonSection from "@/components/comparison-section"
 import ProblemSection from "@/components/problem-section"
 import CalculatorSection from "@/components/calculator-section"
 import FeaturesSection from "@/components/features-section"
@@ -20,6 +21,7 @@ export default function Home() {
       <HeroSection />
       <CarrierReadySection />
       <AgitationSection />
+      <ComparisonSection />
       <ProblemSection />
       <CalculatorSection />
       <FeaturesSection />
